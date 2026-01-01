@@ -10,10 +10,15 @@ System layout (M1 baseline):
 - 1 nuclear spin (I=1/2) → dimension 2
 - Total Hilbert space dimension: 2×2×2 = 8
 
+Phase C extension:
+- 2 electrons + N nuclei → dimension 2^(2+N)
+- Multi-nucleus operators with clean site-based construction
+
 π×φ = 5.083203692315260
 """
 
 import numpy as np
+from functools import lru_cache
 
 
 # ---------- Basic Pauli Operators ----------
@@ -65,6 +70,29 @@ def op_on(subsys_ops):
     return kron(*subsys_ops)
 
 
+def op_on_site(op, site, n_sites):
+    """
+    Build operator acting on a specific site in tensor product.
+
+    Cleaner pattern than building lists manually - avoids indexing bugs.
+
+    Args:
+        op: 2×2 operator (e.g., sx, sy, sz)
+        site: Index of site (0-indexed)
+        n_sites: Total number of sites
+
+    Returns:
+        Full operator: I ⊗ ... ⊗ op ⊗ ... ⊗ I
+
+    Example:
+        >>> # S1x on 3-spin system
+        >>> S1x = op_on_site(sx, site=0, n_sites=3)
+        >>> # Equivalent to kron(sx, id2, id2)
+    """
+    ops_list = [id2 if i != site else op for i in range(n_sites)]
+    return kron(*ops_list)
+
+
 # ---------- System-Specific Operators ----------
 
 def electron_ops():
@@ -112,6 +140,85 @@ def nuclear_ops():
     Iz = op_on([id2, id2, sz])
 
     return (Ix, Iy, Iz)
+
+
+# ---------- Multi-Nucleus Operators (Phase C) ----------
+
+@lru_cache(maxsize=128)
+def electron_ops_multi(N_nuclei):
+    """
+    Electron spin operators for 2-electron + N-nucleus system.
+
+    System order: [e1, e2, n1, n2, ..., nN]
+    Total sites: 2 + N_nuclei
+    Hilbert dimension: 2^(2 + N_nuclei)
+
+    Args:
+        N_nuclei: Number of nuclear spins (N ≥ 1)
+
+    Returns:
+        Tuple: (S1x, S1y, S1z, S2x, S2y, S2z)
+
+    Example:
+        >>> # 2 electrons + 3 nuclei (32D Hilbert space)
+        >>> S1x, S1y, S1z, S2x, S2y, S2z = electron_ops_multi(3)
+        >>> # S1x acts on electron 1, identity on e2 and all nuclei
+
+    Notes:
+        - Cached via lru_cache for performance
+        - For N_nuclei=1, equivalent to electron_ops() (modulo caching)
+    """
+    n_sites = 2 + N_nuclei
+
+    # Electron 1 at site 0
+    S1x = op_on_site(sx, 0, n_sites)
+    S1y = op_on_site(sy, 0, n_sites)
+    S1z = op_on_site(sz, 0, n_sites)
+
+    # Electron 2 at site 1
+    S2x = op_on_site(sx, 1, n_sites)
+    S2y = op_on_site(sy, 1, n_sites)
+    S2z = op_on_site(sz, 1, n_sites)
+
+    return (S1x, S1y, S1z, S2x, S2y, S2z)
+
+
+@lru_cache(maxsize=128)
+def nuclear_ops_multi(N_nuclei):
+    """
+    Nuclear spin operators for N nuclei in 2-electron + N-nucleus system.
+
+    System order: [e1, e2, n1, n2, ..., nN]
+    Nuclei occupy sites 2, 3, ..., 2+N-1
+
+    Args:
+        N_nuclei: Number of nuclear spins (N ≥ 1)
+
+    Returns:
+        List of tuples: [(I1x, I1y, I1z), (I2x, I2y, I2z), ...]
+        Length N_nuclei
+
+    Example:
+        >>> nuclei = nuclear_ops_multi(3)
+        >>> I1x, I1y, I1z = nuclei[0]  # First nucleus
+        >>> I2x, I2y, I2z = nuclei[1]  # Second nucleus
+        >>> I3x, I3y, I3z = nuclei[2]  # Third nucleus
+
+    Notes:
+        - Cached via lru_cache for performance
+        - Each nucleus gets its own (Ix, Iy, Iz) tuple
+    """
+    n_sites = 2 + N_nuclei
+    nuclei_ops = []
+
+    for i in range(N_nuclei):
+        site = 2 + i  # Nuclei start at site 2
+        Ix = op_on_site(sx, site, n_sites)
+        Iy = op_on_site(sy, site, n_sites)
+        Iz = op_on_site(sz, site, n_sites)
+        nuclei_ops.append((Ix, Iy, Iz))
+
+    return nuclei_ops
 
 
 # ---------- Utilities ----------

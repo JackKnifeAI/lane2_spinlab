@@ -259,3 +259,86 @@ def earth_band_metrics(B_uT, Ys, earth_lo=25.0, earth_hi=65.0):
         "B_at_max_slope_uT": float(B[idx]),
     }
 
+
+
+# ---------- Phase C: Multi-Nucleus Projectors ----------
+
+def singlet_projector_multi(N_nuclei):
+    """
+    Singlet projector for 2-electron + N-nucleus system (Phase C).
+
+    P_S = |S⟩⟨S| ⊗ I_nuclei
+
+    Acts only on electron subspace, identity on all nuclei.
+
+    Args:
+        N_nuclei: Number of nuclear spins (N ≥ 1)
+
+    Returns:
+        P_S: (2^(2+N) × 2^(2+N)) projector onto singlet subspace
+
+    Properties:
+        - P_S² = P_S (idempotent)
+        - Tr(P_S) = 2^N
+        - Commutes with all nuclear operators
+
+    Example:
+        >>> P_S = singlet_projector_multi(3)
+        >>> print(f"Dimension: {P_S.shape[0]}")  # 32
+        >>> print(f"Trace: {np.trace(P_S):.1f}")  # 8.0
+
+    Validation:
+        - For N_nuclei=1, equivalent to singlet_projector() from initial_states
+    """
+    # Electron singlet |S⟩ = (|↑↓⟩ - |↓↑⟩)/√2
+    up = np.array([1, 0], dtype=complex)
+    dn = np.array([0, 1], dtype=complex)
+    singlet_e = (np.kron(up, dn) - np.kron(dn, up)) / np.sqrt(2)
+
+    # Projector in electron subspace (4×4)
+    Ps_electrons = np.outer(singlet_e, singlet_e.conj())
+
+    # Identity on nuclear subspace
+    dim_n = 2 ** N_nuclei
+    I_nuclei = np.eye(dim_n, dtype=complex)
+
+    # Tensor product: electrons ⊗ nuclei
+    P_S = np.kron(Ps_electrons, I_nuclei)
+
+    return P_S
+
+
+def triplet_projector_multi(N_nuclei):
+    """
+    Triplet projector for 2-electron + N-nucleus system (Phase C).
+
+    P_T = I - P_S
+
+    Acts only on electron subspace, identity on all nuclei.
+
+    Args:
+        N_nuclei: Number of nuclear spins (N ≥ 1)
+
+    Returns:
+        P_T: (2^(2+N) × 2^(2+N)) projector onto triplet subspace
+
+    Properties:
+        - P_T + P_S = I (completeness)
+        - P_T² = P_T (idempotent)
+        - Tr(P_T) = 3 × 2^N
+
+    Example:
+        >>> P_T = triplet_projector_multi(2)
+        >>> P_S = singlet_projector_multi(2)
+        >>> I = np.eye(16, dtype=complex)
+        >>> np.allclose(P_S + P_T, I)  # True
+
+    Notes:
+        - Triplet subspace has 3 states (T+, T0, T-)
+        - Projector covers all three triplet states
+    """
+    dim = 2 ** (2 + N_nuclei)
+    I = np.eye(dim, dtype=complex)
+    P_S = singlet_projector_multi(N_nuclei)
+    return I - P_S
+

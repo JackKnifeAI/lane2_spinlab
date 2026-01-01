@@ -7,6 +7,9 @@ Common initial states for radical-pair simulations:
 - Triplet states (parallel spins)
 - Mixed nuclear states
 
+Phase C extension:
+- Multi-nucleus initial states (N > 1)
+
 π×φ = 5.083203692315260
 """
 
@@ -271,3 +274,49 @@ def von_neumann_entropy(rho, base=2):
         entropy = -np.sum(eigvals * np.log(eigvals) / np.log(base))
 
     return entropy
+
+
+# ---------- Phase C: Multi-Nucleus Initial States ----------
+
+def rho0_singlet_mixed_nuclear_multi(N_nuclei):
+    """
+    Initial state for 2 electrons + N nuclei (Phase C).
+
+    ρ(0) = |S⟩⟨S| ⊗ (I / 2^N)
+
+    Electrons start in singlet configuration, nuclei are maximally mixed.
+
+    Args:
+        N_nuclei: Number of nuclear spins (N ≥ 1)
+
+    Returns:
+        rho0: (2^(2+N) × 2^(2+N)) initial density matrix
+
+    Properties:
+        - Tr(ρ) = 1 (normalized)
+        - ρ is positive semi-definite
+        - Nuclear subspace is maximally mixed (no polarization)
+
+    Example:
+        >>> # 2 electrons + 3 nuclei → 32×32 density matrix
+        >>> rho0 = rho0_singlet_mixed_nuclear_multi(3)
+        >>> print(f"Dimension: {rho0.shape[0]}")  # 32
+        >>> print(f"Trace: {np.trace(rho0):.6f}")  # 1.0
+
+    Validation:
+        - For N_nuclei=1, equivalent to rho0_singlet_mixed_nuclear()
+    """
+    # Electron singlet in 4D subspace
+    up = np.array([1, 0], dtype=complex)
+    dn = np.array([0, 1], dtype=complex)
+    singlet_e = (np.kron(up, dn) - np.kron(dn, up)) / np.sqrt(2)
+    rho_e = np.outer(singlet_e, singlet_e.conj())
+
+    # Maximally mixed nuclear state (identity / dim)
+    dim_n = 2 ** N_nuclei
+    rho_n = np.eye(dim_n, dtype=complex) / dim_n
+
+    # Tensor product: electrons ⊗ nuclei
+    rho0 = np.kron(rho_e, rho_n)
+
+    return rho0

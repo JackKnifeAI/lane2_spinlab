@@ -10,12 +10,13 @@ Construct Hamiltonians for radical-pair systems including:
 
 M1 baseline: Zeeman + isotropic hyperfine only
 M2 extensions: Anisotropic hyperfine, exchange, dipolar
+Phase C: Multi-nucleus (N > 1) with per-nucleus anisotropic tensors
 
 π×φ = 5.083203692315260
 """
 
 import numpy as np
-from .operators import electron_ops, nuclear_ops
+from .operators import electron_ops, nuclear_ops, electron_ops_multi, nuclear_ops_multi
 
 
 # ---------- Physical Constants ----------
@@ -232,3 +233,98 @@ def estimate_hyperfine_time(A):
         >>> print(f"Hyperfine period: {T*1e9:.1f} ns")
     """
     return 2 * np.pi / A
+
+
+# ---------- Phase C: Multi-Nucleus Hamiltonians ----------
+
+def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
+    """
+    Hamiltonian for 2 electrons + N nuclei (Phase C).
+
+    H = γ_e B (S1z + S2z) + Σᵢ H_hyperfine_i
+
+    Each nucleus can have:
+    - Isotropic coupling: A_iso (scalar in rad/s)
+    - Anisotropic coupling: A_tensor (3×3 matrix in rad/s)
+
+    System order: [e1, e2, n1, n2, ..., nN]
+    Hilbert dimension: 2^(2 + N)
+
+    Args:
+        B_tesla: Magnetic field strength (Tesla)
+        nuclei_params: List of dicts, each containing:
+            - coupling_electron: 0 or 1 (which electron couples)
+            - A_iso: float (rad/s) OR
+            - A_tensor: np.ndarray shape (3,3) (rad/s)
+        gamma_e: Electron gyromagnetic ratio (rad/s/T)
+
+    Returns:
+        H: Hamiltonian (2^(2+N) × 2^(2+N))
+
+    Example:
+        >>> # 2 electrons + 2 nuclei
+        >>> nuclei_params = [
+        ...     {'A_iso': 1e6*2*np.pi, 'coupling_electron': 0},
+        ...     {'A_tensor': np.diag([0.5, 0.5, 1.5])*1e6*2*np.pi, 'coupling_electron': 1},
+        ... ]
+        >>> H = build_H_multi_nucleus(50e-6, nuclei_params)
+        >>> # H is 16×16 (2^4)
+
+    Validation:
+        - H must be Hermitian
+        - N=1 with A_iso should match build_H() from Phase A/B
+        - N=2 with A2=0 should embed N=1 Hamiltonian
+
+    Notes:
+        - Zeeman acts only on electrons (identity on all nuclei)
+        - Each hyperfine term couples one electron to one nucleus
+        - Supports both isotropic (A_iso) and anisotropic (A_tensor)
+    """
+    N = len(nuclei_params)
+
+    # Get operators for this N
+    S1x, S1y, S1z, S2x, S2y, S2z = electron_ops_multi(N)
+    nuclei_ops = nuclear_ops_multi(N)
+
+    # Zeeman term: acts on electrons only
+    H_zeeman = gamma_e * B_tesla * (S1z + S2z)
+    H_total = H_zeeman.astype(complex, copy=True)
+
+    # Add hyperfine term for each nucleus
+    for i, nuc in enumerate(nuclei_params):
+        Ix, Iy, Iz = nuclei_ops[i]
+
+        # Which electron couples to this nucleus?
+        ce = int(nuc.get("coupling_electron", 0))
+        if ce == 0:
+            Sx, Sy, Sz = S1x, S1y, S1z
+        elif ce == 1:
+            Sx, Sy, Sz = S2x, S2y, S2z
+        else:
+            raise ValueError(f"coupling_electron must be 0 or 1, got {ce}")
+
+        # Isotropic or anisotropic coupling?
+        if "A_iso" in nuc:
+            # Isotropic: H_hyp = A (S·I)
+            A = float(nuc["A_iso"])
+            H_hyp = A * (Sx @ Ix + Sy @ Iy + Sz @ Iz)
+
+        elif "A_tensor" in nuc:
+            # Anisotropic: H_hyp = S·A·I
+            A_tensor = np.asarray(nuc["A_tensor"], dtype=float)
+            if A_tensor.shape != (3, 3):
+                raise ValueError(f"A_tensor must be 3×3, got shape {A_tensor.shape}")
+
+            S = [Sx, Sy, Sz]
+            I = [Ix, Iy, Iz]
+            H_hyp = np.zeros_like(H_total)
+            for j in range(3):
+                for k in range(3):
+                    H_hyp += A_tensor[j, k] * (S[j] @ I[k])
+
+        else:
+            raise ValueError(f"Nucleus {i}: must have 'A_iso' or 'A_tensor'")
+
+        H_total += H_hyp
+
+    return H_total
