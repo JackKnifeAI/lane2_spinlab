@@ -20,7 +20,7 @@ from .initial_states import singlet_projector, rho0_singlet_mixed_nuclear
 from .lindblad import lindblad_rhs, rk4_step
 
 
-def build_recomb_L(Ps, kS=1e6, kT=1e6):
+def build_recomb_L(Ps, kS=1e4, kT=1e4):
     """
     Construct Lindblad operators for recombination.
 
@@ -39,7 +39,7 @@ def build_recomb_L(Ps, kS=1e6, kT=1e6):
         List of Lindblad operators [L_S, L_T]
 
     Notes:
-        - Typical k_S, k_T ~ 10^6 s^-1 (μs timescale)
+        - Typical k_S, k_T ~ 10^4-10^6 s^-1 (10-100 μs timescale)
         - Often k_S > k_T (singlet-specific recombination)
         - Product yield = k_S * ∫ Tr(P_S ρ(t)) dt
 
@@ -63,8 +63,8 @@ def simulate_yields(
     T=5e-6,
     dt=2e-9,
     A=1e6 * 2 * np.pi,
-    kS=1e6,
-    kT=1e6,
+    kS=1e4,
+    kT=1e4,
     gamma_e=2 * np.pi * 28e9,
     rho0=None,
 ):
