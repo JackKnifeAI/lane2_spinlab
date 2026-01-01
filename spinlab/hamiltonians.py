@@ -237,11 +237,11 @@ def estimate_hyperfine_time(A):
 
 # ---------- Phase C: Multi-Nucleus Hamiltonians ----------
 
-def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
+def build_H_multi_nucleus(B, nuclei_params, gamma_e=GAMMA_E):
     """
     Hamiltonian for 2 electrons + N nuclei (Phase C).
 
-    H = γ_e B (S1z + S2z) + Σᵢ H_hyperfine_i
+    H = γ_e B·(S1 + S2) + Σᵢ H_hyperfine_i
 
     Each nucleus can have:
     - Isotropic coupling: A_iso (scalar in rad/s)
@@ -251,7 +251,9 @@ def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
     Hilbert dimension: 2^(2 + N)
 
     Args:
-        B_tesla: Magnetic field strength (Tesla)
+        B: Magnetic field (Tesla)
+           - scalar: interpreted as Bz (backwards compatible)
+           - array_like shape (3,): [Bx, By, Bz] (C-2.1 vector support)
         nuclei_params: List of dicts, each containing:
             - coupling_electron: 0 or 1 (which electron couples)
             - A_iso: float (rad/s) OR
@@ -262,23 +264,26 @@ def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
         H: Hamiltonian (2^(2+N) × 2^(2+N))
 
     Example:
-        >>> # 2 electrons + 2 nuclei
-        >>> nuclei_params = [
-        ...     {'A_iso': 1e6*2*np.pi, 'coupling_electron': 0},
-        ...     {'A_tensor': np.diag([0.5, 0.5, 1.5])*1e6*2*np.pi, 'coupling_electron': 1},
-        ... ]
+        >>> # Scalar B (backwards compatible)
         >>> H = build_H_multi_nucleus(50e-6, nuclei_params)
-        >>> # H is 16×16 (2^4)
+        >>>
+        >>> # Vector B (C-2.1 orientation-dependent)
+        >>> B_vec = [0.0, 0.0, 50e-6]  # Same as scalar
+        >>> H = build_H_multi_nucleus(B_vec, nuclei_params)
+        >>>
+        >>> # Tilted field
+        >>> B_vec = [30e-6, 0.0, 40e-6]  # |B| = 50 μT
+        >>> H = build_H_multi_nucleus(B_vec, nuclei_params)
 
-    Validation:
+    Validation (C-2.1):
+        - Scalar B == vector [0,0,B] (backwards compatible)
         - H must be Hermitian
-        - N=1 with A_iso should match build_H() from Phase A/B
-        - N=2 with A2=0 should embed N=1 Hamiltonian
+        - Anisotropic tensors introduce orientation dependence
 
     Notes:
         - Zeeman acts only on electrons (identity on all nuclei)
         - Each hyperfine term couples one electron to one nucleus
-        - Supports both isotropic (A_iso) and anisotropic (A_tensor)
+        - A_tensor symmetrized: A ← (A + A.T)/2 (typical for hyperfine)
     """
     N = len(nuclei_params)
 
@@ -286,8 +291,19 @@ def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
     S1x, S1y, S1z, S2x, S2y, S2z = electron_ops_multi(N)
     nuclei_ops = nuclear_ops_multi(N)
 
-    # Zeeman term: acts on electrons only
-    H_zeeman = gamma_e * B_tesla * (S1z + S2z)
+    # Normalize B input (C-2.1: scalar or vector)
+    if np.isscalar(B):
+        Bx, By, Bz = 0.0, 0.0, float(B)
+    else:
+        B_vec = np.asarray(B, dtype=float).reshape(3,)
+        Bx, By, Bz = B_vec[0], B_vec[1], B_vec[2]
+
+    # Zeeman term: vector B dotted with electron spin
+    H_zeeman = gamma_e * (
+        Bx * (S1x + S2x) +
+        By * (S1y + S2y) +
+        Bz * (S1z + S2z)
+    )
     H_total = H_zeeman.astype(complex, copy=True)
 
     # Add hyperfine term for each nucleus
@@ -314,6 +330,9 @@ def build_H_multi_nucleus(B_tesla, nuclei_params, gamma_e=GAMMA_E):
             A_tensor = np.asarray(nuc["A_tensor"], dtype=float)
             if A_tensor.shape != (3, 3):
                 raise ValueError(f"A_tensor must be 3×3, got shape {A_tensor.shape}")
+
+            # Symmetrize (hyperfine tensors typically symmetric in effective models)
+            A_tensor = 0.5 * (A_tensor + A_tensor.T)
 
             S = [Sx, Sy, Sz]
             I = [Ix, Iy, Iz]
