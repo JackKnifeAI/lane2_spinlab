@@ -321,3 +321,91 @@ def isotope_effect(
         Yt_array.append(Yt)
 
     return A_range, np.array(Ys_array), np.array(Yt_array)
+
+
+# ---------- Phase C: Multi-Nucleus Simulation ----------
+
+def simulate_yields_multi_nucleus(
+    B,
+    nuclei_params,
+    T=5e-6,
+    dt=2e-9,
+    kS=1e6,
+    kT=1e6,
+    gamma=None,
+    gamma_e=2 * np.pi * 28e9,
+    rho0=None,
+):
+    """
+    Simulate yields for multi-nucleus system (Phase C).
+
+    Args:
+        B: Magnetic field (Tesla)
+           - scalar: interpreted as Bz
+           - array_like (3,): [Bx, By, Bz]
+        nuclei_params: List of nucleus dicts (as in build_H_multi_nucleus)
+        T: Total simulation time (s), default: 5 μs
+        dt: Time step (s), default: 2 ns
+        kS, kT: Singlet/triplet recombination rates (s^-1)
+        gamma: Dephasing rate (rad/s), optional
+        gamma_e: Electron gyromagnetic ratio (rad/s/T)
+        rho0: Initial density matrix (default: singlet ⊗ mixed nuclear)
+
+    Returns:
+        Tuple (Y_S, Y_T, rho_final):
+            Y_S: Total singlet yield
+            Y_T: Total triplet yield
+            rho_final: Final density matrix (for coherence analysis)
+
+    Example:
+        >>> # N=2: one anisotropic, one isotropic
+        >>> nuclei_params = [
+        ...     {\"A_tensor\": np.diag([1, 1, 2])*2*np.pi*1e6, \"coupling_electron\": 0},
+        ...     {\"A_iso\": 0.5*2*np.pi*1e6, \"coupling_electron\": 1},
+        ... ]
+        >>> # Vector B
+        >>> B_vec = [30e-6, 0, 40e-6]
+        >>> Y_S, Y_T, rho = simulate_yields_multi_nucleus(B_vec, nuclei_params)
+    """
+    from .hamiltonians import build_H_multi_nucleus
+    from .metrics import singlet_projector_multi
+    from .initial_states import rho0_singlet_mixed_nuclear_multi
+    from .lindblad import rk4_step_density_and_yields, build_electron_dephasing_Ls
+    from .operators import electron_ops_multi
+
+    N = len(nuclei_params)
+
+    # Build Hamiltonian (handles scalar or vector B)
+    H = build_H_multi_nucleus(B, nuclei_params, gamma_e=gamma_e)
+
+    # Projectors (nucleus-agnostic)
+    Ps = singlet_projector_multi(N)
+    dim = 2 ** (2 + N)
+    I = np.eye(dim, dtype=complex)
+    Pt = I - Ps
+
+    # Initial state
+    if rho0 is None:
+        rho = rho0_singlet_mixed_nuclear_multi(N)
+    else:
+        rho = rho0.copy()
+
+    # Dephasing operators (optional)
+    Ls_deph = []
+    if gamma is not None and gamma > 0:
+        S1x, S1y, S1z, S2x, S2y, S2z = electron_ops_multi(N)
+        Ls_deph = build_electron_dephasing_Ls(gamma, S1z, S2z)
+
+    # Initialize yields
+    Ys = 0.0
+    Yt = 0.0
+
+    # Time evolution (use RK4 yield integration for closure)
+    steps = int(T / dt)
+    for _ in range(steps):
+        rho, dYs, dYt = rk4_step_density_and_yields(rho, dt, H, Ps, kS, kT, Ls_deph)
+        Ys += dYs
+        Yt += dYt
+
+    return Ys, Yt, rho
+
