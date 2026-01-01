@@ -20,6 +20,23 @@ import numpy as np
 from typing import List, Callable
 
 
+def haberkorn_rhs(rho, H, Ps, kS, kT):
+    """
+    Haberkorn trace-decreasing master equation for recombination.
+
+    dρ/dt = -i[H,ρ] - (k_S/2){P_S,ρ} - (k_T/2){P_T,ρ}
+
+    Population DECREASES as pairs recombine (not trace-preserving).
+    """
+    dim = rho.shape[0]
+    I = np.eye(dim, dtype=complex)
+    Pt = I - Ps
+
+    comm = -1j * (H @ rho - rho @ H)
+    loss = -0.5 * kS * (Ps @ rho + rho @ Ps) - 0.5 * kT * (Pt @ rho + rho @ Pt)
+    return comm + loss
+
+
 def lindblad_rhs(rho, H, Ls):
     """
     Compute right-hand side of Lindblad master equation.

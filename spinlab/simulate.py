@@ -17,7 +17,7 @@ from typing import Tuple, Optional
 from .operators import id2
 from .hamiltonians import build_H
 from .initial_states import singlet_projector, rho0_singlet_mixed_nuclear
-from .lindblad import lindblad_rhs, rk4_step
+from .lindblad import lindblad_rhs, haberkorn_rhs, rk4_step
 
 
 def build_recomb_L(Ps, kS=1e6, kT=1e6):
@@ -128,9 +128,9 @@ def simulate_yields(
     Ys = 0.0
     Yt = 0.0
 
-    # Define RHS function
+    # Define RHS function (Haberkorn trace-decreasing)
     def f(r):
-        return lindblad_rhs(r, H, Ls)
+        return haberkorn_rhs(r, H, Ps, kS, kT)
 
     # Time evolution
     steps = int(T / dt)
