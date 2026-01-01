@@ -208,3 +208,54 @@ def max_sensitivity_window(B_vals, F_vals, width_uT=10):
     B_max = B_center + width/2
 
     return B_center, F_max, (B_min, B_max)
+
+
+def earth_band_metrics(B_uT, Ys, earth_lo=25.0, earth_hi=65.0):
+    """
+    Compute magnetosensitivity metrics in Earth field range.
+
+    Args:
+        B_uT: Magnetic field values (μT)
+        Ys: Singlet yields
+        earth_lo, earth_hi: Earth field range (μT)
+
+    Returns:
+        dict with:
+            Ys_min, Ys_max: Yield range
+            delta_Ys: Total yield variation
+            max_abs_dYs_dB_uT_inv: Maximum |dY/dB| (μT^-1)
+            B_at_max_slope_uT: Field where max slope occurs
+
+    Example:
+        >>> metrics = earth_band_metrics(B_uT, Ys)
+        >>> print(f"ΔY_S = {metrics[\"delta_Ys\"]:.4f}")
+    """
+    B_uT = np.asarray(B_uT, dtype=float)
+    Ys = np.asarray(Ys, dtype=float)
+
+    mask = (B_uT >= earth_lo) & (B_uT <= earth_hi)
+    B = B_uT[mask]
+    y = Ys[mask]
+
+    if len(B) == 0:
+        return {
+            "Ys_min": 0.0,
+            "Ys_max": 0.0,
+            "delta_Ys": 0.0,
+            "max_abs_dYs_dB_uT_inv": 0.0,
+            "B_at_max_slope_uT": 0.0,
+        }
+
+    # Finite difference slope (units: per μT)
+    dy = np.gradient(y, B)
+    max_abs = float(np.max(np.abs(dy)))
+    idx = int(np.argmax(np.abs(dy)))
+
+    return {
+        "Ys_min": float(np.min(y)),
+        "Ys_max": float(np.max(y)),
+        "delta_Ys": float(np.max(y) - np.min(y)),
+        "max_abs_dYs_dB_uT_inv": max_abs,
+        "B_at_max_slope_uT": float(B[idx]),
+    }
+

@@ -20,6 +20,88 @@ import numpy as np
 from typing import List, Callable
 
 
+def haberkorn_loss(rho, Ps, kS, kT):
+    """
+    Haberkorn loss term (trace-decreasing recombination).
+
+    L_Haberkorn(ρ) = -(k_S/2){P_S,ρ} - (k_T/2){P_T,ρ}
+
+    This is the LOSS part only, for composability.
+    """
+    dim = rho.shape[0]
+    I = np.eye(dim, dtype=complex)
+    Pt = I - Ps
+    return -0.5 * kS * (Ps @ rho + rho @ Ps) - 0.5 * kT * (Pt @ rho + rho @ Pt)
+
+
+def lindblad_dissipator(rho, Ls):
+    """
+    Lindblad dissipator (trace-preserving).
+
+    D(ρ) = Σ_k (L_k ρ L_k† - 1/2{L_k†L_k, ρ})
+
+    Args:
+        rho: Density matrix
+        Ls: List of Lindblad operators
+
+    Returns:
+        Dissipator term
+    """
+    if not Ls:
+        return 0.0
+
+    out = np.zeros_like(rho)
+    for L in Ls:
+        LdL = L.conj().T @ L
+        out += L @ rho @ L.conj().T - 0.5 * (LdL @ rho + rho @ LdL)
+    return out
+
+
+def build_electron_dephasing_Ls(gamma, S1z, S2z):
+    """
+    Build electron dephasing Lindblad operators.
+
+    L_1 = √γ S_1z
+    L_2 = √γ S_2z
+
+    Args:
+        gamma: Dephasing rate (s^-1)
+        S1z, S2z: Electron z-spin operators
+
+    Returns:
+        List of Lindblad operators [L_1, L_2], or [] if gamma <= 0
+    """
+    if gamma is None or gamma <= 0:
+        return []
+    g = float(gamma)
+    return [np.sqrt(g) * S1z, np.sqrt(g) * S2z]
+
+
+def rhs_total(rho, H, Ps, kS, kT, Ls_deph=None):
+    """
+    Complete RHS with composable structure (Phase B).
+
+    dρ/dt = -i[H,ρ]                      [unitary]
+          + L_Haberkorn(ρ)                [loss, trace-decreasing]
+          + D_dephasing(ρ)                [dephasing, trace-preserving]
+
+    Args:
+        rho: Density matrix
+        H: Hamiltonian
+        Ps: Singlet projector
+        kS, kT: Recombination rates
+        Ls_deph: List of dephasing Lindblad operators (optional)
+
+    Returns:
+        dρ/dt
+    """
+    Ls_deph = Ls_deph or []
+    comm = -1j * (H @ rho - rho @ H)
+    loss = haberkorn_loss(rho, Ps, kS, kT)
+    deph = lindblad_dissipator(rho, Ls_deph)
+    return comm + loss + deph
+
+
 def haberkorn_rhs(rho, H, Ps, kS, kT):
     """
     Haberkorn trace-decreasing master equation for recombination.
@@ -27,14 +109,10 @@ def haberkorn_rhs(rho, H, Ps, kS, kT):
     dρ/dt = -i[H,ρ] - (k_S/2){P_S,ρ} - (k_T/2){P_T,ρ}
 
     Population DECREASES as pairs recombine (not trace-preserving).
-    """
-    dim = rho.shape[0]
-    I = np.eye(dim, dtype=complex)
-    Pt = I - Ps
 
-    comm = -1j * (H @ rho - rho @ H)
-    loss = -0.5 * kS * (Ps @ rho + rho @ Ps) - 0.5 * kT * (Pt @ rho + rho @ Pt)
-    return comm + loss
+    NOTE: This is the legacy interface. New code should use rhs_total().
+    """
+    return rhs_total(rho, H, Ps, kS, kT, Ls_deph=None)
 
 
 def lindblad_rhs(rho, H, Ls):
@@ -114,6 +192,70 @@ def rk4_step(f, y, dt):
     k4 = f(y + dt * k3)
 
     return y + dt * (k1 + 2*k2 + 2*k3 + k4) / 6
+
+
+def rk4_step_density_and_yields(rho, dt, H, Ps, kS, kT, Ls_deph):
+    """
+    RK4 step for density matrix + RK4-consistent yield integration.
+
+    This makes yield integration O(dt^4) instead of O(dt^1), killing closure drift.
+
+    Advances:
+        ρ(t) → ρ(t+dt)  [RK4 on rhs_total]
+        Y_S, Y_T → integrated rates [RK4 on k_S Tr(P_S ρ), k_T Tr(P_T ρ)]
+
+    Args:
+        rho: Current density matrix
+        dt: Time step
+        H: Hamiltonian
+        Ps: Singlet projector
+        kS, kT: Recombination rates
+        Ls_deph: Dephasing Lindblad operators
+
+    Returns:
+        Tuple (rho_next, dYs, dYt):
+            rho_next: ρ(t+dt)
+            dYs: Yield increment for singlet
+            dYt: Yield increment for triplet
+    """
+    dim = rho.shape[0]
+    I = np.eye(dim, dtype=complex)
+    Pt = I - Ps
+
+    def rates(r):
+        """Compute singlet and triplet recombination rates."""
+        ps = np.real(np.trace(Ps @ r))
+        pt = np.real(np.trace(Pt @ r))
+        return kS * ps, kT * pt
+
+    def f(r):
+        """RHS function."""
+        return rhs_total(r, H, Ps, kS, kT, Ls_deph)
+
+    # RK4 stages for density matrix AND rates
+    k1 = f(rho)
+    r1s, r1t = rates(rho)
+
+    rho2 = rho + 0.5*dt*k1
+    k2 = f(rho2)
+    r2s, r2t = rates(rho2)
+
+    rho3 = rho + 0.5*dt*k2
+    k3 = f(rho3)
+    r3s, r3t = rates(rho3)
+
+    rho4 = rho + dt*k3
+    k4 = f(rho4)
+    r4s, r4t = rates(rho4)
+
+    # Advance density matrix (RK4)
+    rho_next = rho + (dt/6.0)*(k1 + 2*k2 + 2*k3 + k4)
+
+    # Integrate yields (RK4-consistent)
+    dYs = (dt/6.0)*(r1s + 2*r2s + 2*r3s + r4s)
+    dYt = (dt/6.0)*(r1t + 2*r2t + 2*r3t + r4t)
+
+    return rho_next, dYs, dYt
 
 
 def euler_step(f, y, dt):
