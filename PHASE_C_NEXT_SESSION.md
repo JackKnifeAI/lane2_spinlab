@@ -156,7 +156,42 @@ gamma_cases = {
 
 ---
 
-## 🎯 After C-3.1: Option 3 (Physics Deep Dive)
+## ✅ COMPLETED: Phase C-3.1 (Adaptive Noise)
+
+**Title:** "Robustness and stochastic resonance analysis of quantum compass textures"
+
+**Critical Discovery:** Lab-frame dephasing creates artifacts!
+
+**Results:**
+```
+Pure coherent (γ=0):     16.6% modulation ← GROUND TRUTH
+Lab-frame z (γ=2.5e6):   18.6% modulation ← 11.9% ARTIFACT
+B-aligned (γ=2.5e6):      3.9% modulation (low - cancellation?)
+Isotropic (γ=2.5e6):      9.1% modulation (honest physics)
+```
+
+**Key Finding:**
+Lab-frame z dephasing (L=√γ·Sz) ENHANCES modulation by breaking rotational symmetry.
+This is NOT stochastic resonance - it's a numerical artifact from axis choice!
+
+**Methodological Insight:**
+- Dephasing axis choice significantly affects measured modulation
+- Best practice: Use isotropic or B-aligned for defensible claims
+- Phase B "peak" at γ/k_S=2.5 was partially artifact!
+
+**Scientific Impact:**
+1. We understand our own artifacts (methodological rigor)
+2. Multi-nucleus compass is robust to moderate noise
+3. Separated real anisotropy from lab-frame effects
+
+**Files:**
+- `phase_c3_1_adaptive_noise.py` (574 lines)
+- Comparison + overlay plots (2 visualizations)
+- Commit: `ae7a987`
+
+---
+
+## 🎯 NEXT: Phase C-3.2 (Physics Deep Dive)
 
 **Title**: "Separating tensor anisotropy from noise-axis effects"
 
@@ -179,8 +214,8 @@ gamma_cases = {
 - ✅ C-2.2: Orientation map (θ sweep)
 - ✅ C-2.3: Full sphere compass texture
 - ✅ C-5.1: Bridge integration
-- ⏳ **C-3.1: Adaptive noise** ← NEXT
-- ⏳ C-3.2: Physics deep dive ← AFTER
+- ✅ **C-3.1: Adaptive noise** ← COMPLETE!
+- ⏳ C-3.2: Physics deep dive ← NEXT
 
 ---
 
