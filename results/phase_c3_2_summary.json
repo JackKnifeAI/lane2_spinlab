@@ -1,0 +1,10 @@
+{
+  "pure_depth": 0.16592772408046852,
+  "lab_depth": 0.18570323168127362,
+  "iso_depth": 0.09142788611830757,
+  "artifact_absolute": 0.019775507600805098,
+  "artifact_relative_pct": 11.918145512087385,
+  "noise_suppression": 0.07449983796216095,
+  "noise_suppression_pct": 44.898969340428856,
+  "signal_to_artifact_ratio": 8.390567131319212
+}
